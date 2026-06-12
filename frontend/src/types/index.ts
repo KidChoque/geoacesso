@@ -15,7 +15,7 @@ export type AccessibilityFeature = {
 export type Establishment = {
   id: string
   name: string
-  description: string
+  description?: string
   address: string
   imageUrl: string
   rating: number

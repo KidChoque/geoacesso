@@ -1,6 +1,8 @@
+import { useEffect, useState } from 'react'
 import { ArrowLeft, MapPin, Navigation, Star } from 'lucide-react'
 import type { Establishment } from '../types'
 import { AccessibilityBadge } from './AccessibilityBadge'
+import { buscarEnderecoPorCep } from '../services/cepService'
 
 type EstablishmentDetailsProps = {
   establishment: Establishment
@@ -8,6 +10,42 @@ type EstablishmentDetailsProps = {
 }
 
 export function EstablishmentDetails({ establishment, onBack }: EstablishmentDetailsProps) {
+  const [resolvedAddress, setResolvedAddress] = useState<string | null>(null)
+  const [isLoadingAddress, setIsLoadingAddress] = useState(false)
+
+  // Load description from localStorage based on CNPJ (id)
+  const [localDescription, setLocalDescription] = useState<string>('')
+  useEffect(() => {
+    const desc = localStorage.getItem(`descricaoEstabelecimento:${establishment.id}`)
+    if (desc) setLocalDescription(desc)
+    else setLocalDescription('Informações de acessibilidade cadastradas pelo administrador.')
+  }, [establishment.id])
+
+  useEffect(() => {
+    const isReal = establishment.address.startsWith('CEP:')
+    if (!isReal) {
+      setResolvedAddress(establishment.address)
+      return
+    }
+
+    const cep = establishment.address.replace('CEP:', '').trim()
+    setIsLoadingAddress(true)
+    buscarEnderecoPorCep(cep)
+      .then((addr) => {
+        const formatted = `${addr.logradouro}, ${addr.bairro}, ${addr.localidade} - ${addr.uf}, CEP: ${addr.cep}`
+        setResolvedAddress(formatted)
+      })
+      .catch((err) => {
+        console.error('Falha ao obter endereço completo:', err)
+        setResolvedAddress(establishment.address)
+      })
+      .finally(() => {
+        setIsLoadingAddress(false)
+      })
+  }, [establishment])
+
+   const description = localDescription;
+
   return (
     <article className="mx-auto w-full max-w-7xl px-4 pb-24 pt-28 sm:px-6 lg:px-8">
       <button
@@ -38,7 +76,11 @@ export function EstablishmentDetails({ establishment, onBack }: EstablishmentDet
                 </h1>
                 <p className="mt-3 flex gap-2 text-sm leading-relaxed text-[#D1D5DB] sm:text-base">
                   <MapPin className="mt-0.5 h-5 w-5 shrink-0 text-[#E4C31A]" aria-hidden="true" />
-                  {establishment.address}
+                  {isLoadingAddress ? (
+                    <span className="text-xs text-gray-400 animate-pulse">Carregando endereço...</span>
+                  ) : (
+                    resolvedAddress || establishment.address
+                  )}
                 </p>
               </div>
               <span className="inline-flex w-fit items-center gap-2 rounded-full bg-[#111827]/90 px-4 py-2 text-base font-bold text-[#E4C31A]">
@@ -54,7 +96,7 @@ export function EstablishmentDetails({ establishment, onBack }: EstablishmentDet
             <h2 id="details-description" className="text-2xl font-bold text-white">
               Sobre o local
             </h2>
-            <p className="mt-4 text-base leading-8 text-[#D1D5DB]">{establishment.description}</p>
+            <p className="mt-4 text-base leading-8 text-[#D1D5DB]">{description}</p>
           </section>
 
           <section className="rounded-3xl bg-[#374151] p-5 sm:p-6" aria-labelledby="details-map">

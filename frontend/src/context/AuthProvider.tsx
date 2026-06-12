@@ -37,6 +37,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
             login: async (email, senha) => {
                 const token = await authService.login(email, senha)
                 setIsAuthenticated(true)
+                const role: UserRole = email.trim().toLowerCase() === 'admin@email.com.br' ? 'ADMIN' : 'USER'
+                setUserRole(role)
                 return token
             },
             logout: () => {

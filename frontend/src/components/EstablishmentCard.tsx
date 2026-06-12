@@ -1,6 +1,8 @@
+import { useEffect, useState } from 'react'
 import { MapPin, Star } from 'lucide-react'
 import type { Establishment } from '../types'
 import { AccessibilityBadge } from './AccessibilityBadge'
+import { buscarEnderecoPorCep } from '../services/cepService'
 
 type EstablishmentCardProps = {
   establishment: Establishment
@@ -8,6 +10,35 @@ type EstablishmentCardProps = {
 }
 
 export function EstablishmentCard({ establishment, onViewDetails }: EstablishmentCardProps) {
+  const [resolvedAddress, setResolvedAddress] = useState<string | null>(null)
+
+  // Load description from localStorage based on CNPJ (id)
+  const [localDescription, setLocalDescription] = useState<string>('')
+  useEffect(() => {
+    const desc = localStorage.getItem(`descricaoEstabelecimento:${establishment.id}`)
+    if (desc) setLocalDescription(desc)
+    else setLocalDescription('Informações de acessibilidade cadastradas pelo administrador.')
+  }, [establishment.id])
+
+  useEffect(() => {
+    const isReal = establishment.address.startsWith('CEP:')
+    if (!isReal) {
+      setResolvedAddress(establishment.address)
+      return
+    }
+
+    const cep = establishment.address.replace('CEP:', '').trim()
+    buscarEnderecoPorCep(cep)
+      .then((addr) => {
+        const formatted = `${addr.logradouro}, ${addr.bairro}, ${addr.localidade}/${addr.uf}, CEP: ${addr.cep}`
+        setResolvedAddress(formatted)
+      })
+      .catch((err) => {
+        console.error('Falha ao obter endereço para o card:', err)
+        setResolvedAddress(establishment.address)
+      })
+  }, [establishment.address])
+
   return (
     <article className="group flex h-full flex-col overflow-hidden rounded-2xl bg-[#374151] shadow-lg transition hover:-translate-y-1 hover:bg-[#3f4b5f]">
       <div className="relative aspect-[4/3] overflow-hidden">
@@ -32,8 +63,11 @@ export function EstablishmentCard({ establishment, onViewDetails }: Establishmen
           <p className="flex gap-2 text-sm leading-relaxed text-[#D1D5DB]">
             <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[#E4C31A]" aria-hidden="true" />
             <span>
-              {establishment.address} · {establishment.distance}
+              {resolvedAddress || establishment.address} · {establishment.distance}
             </span>
+          </p>
+          <p className="mt-1 text-sm text-[#D1D5DB]">
+            {localDescription}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">

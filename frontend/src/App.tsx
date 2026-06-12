@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import './App.css'
 import { BottomNavigation } from './components/BottomNavigation'
 import { CategoryBar } from './components/CategoryBar'
@@ -7,13 +7,33 @@ import { EstablishmentDetails } from './components/EstablishmentDetails'
 import { Footer } from './components/Footer'
 import { Header } from './components/Header'
 import { useAuth } from './context/useAuth'
-import { bottomNavigationItems, categories, establishments } from './data/mockData'
+import { accessibilityFeatures, bottomNavigationItems, categories, establishments } from './data/mockData'
 import { AdminEstablishmentsPage } from './pages/AdminEstablishmentsPage'
 import { AppearanceSettingsPage } from './pages/AppearanceSettingsPage'
 import { LoginPage } from './pages/LoginPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { RegisterUserPage } from './pages/RegisterUserPage'
 import type { Establishment } from './types'
+import { listarEstabelecimentosPublico } from './services/establishmentService'
+
+const mapBackendAcessibilidadeToFrontend = (backendAcess: string) => {
+  const norm = backendAcess.trim().toUpperCase()
+  let targetId = ''
+  if (norm === 'RAMPA') targetId = 'ramp'
+  else if (norm === 'BANHEIRO_ADAPTADO') targetId = 'bathroom'
+  else if (norm === 'ELEVADOR') targetId = 'elevator'
+  else if (norm === 'PISO_TATIL') targetId = 'tactile-floor'
+  else if (norm === 'VAGA_PCD') targetId = 'parking'
+  else if (norm === 'SINALIZACAO_BRAILE') targetId = 'braille'
+  else if (norm === 'ATENDIMENTO_LIBRAS') targetId = 'libras'
+  else if (norm === 'SINALIZACAO_VISUAL') targetId = 'visual'
+  else if (norm === 'SINALIZACAO_SIMPLES') targetId = 'visual'
+  else if (norm === 'ATENDIMENTO_PRIORITARIO') targetId = 'ramp'
+
+  const matched = accessibilityFeatures.find(f => f.id === targetId)
+  if (matched) return matched
+  return accessibilityFeatures[0]
+}
 
 type AuthPage = 'login' | 'register' | null
 type MainPage = 'home' | 'profile' | 'settings' | 'admin-establishments'
@@ -25,6 +45,64 @@ function App() {
   const [selectedEstablishment, setSelectedEstablishment] = useState<Establishment | null>(null)
   const [authPage, setAuthPage] = useState<AuthPage>(null)
   const [mainPage, setMainPage] = useState<MainPage>('home')
+  const [allEstablishments, setAllEstablishments] = useState<Establishment[]>(establishments)
+  const [loadingEstabs, setLoadingEstabs] = useState<boolean>(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  useEffect(() => {
+    if (mainPage === 'admin-establishments' && userRole !== 'ADMIN') {
+      setMainPage('home')
+    }
+  }, [mainPage, userRole])
+
+  useEffect(() => {
+    if (mainPage !== 'home') return;
+    let active = true;
+    setLoadingEstabs(true);
+    setLoadError(null);
+    listarEstabelecimentosPublico()
+      .then((data) => {
+        if (!active) return;
+        const mapped: Establishment[] = data.map((item) => {
+          const mappedFeatures = (item.acessibilidades || [])
+            .map(mapBackendAcessibilidadeToFrontend)
+            .filter(Boolean);
+
+          const categoryName = item.servico
+            ? item.servico.charAt(0).toUpperCase() + item.servico.slice(1).toLowerCase()
+            : 'Outro';
+
+          return {
+            id: item.cnpj,
+            name: item.nome,
+            description: `Estabelecimento do tipo ${categoryName} cadastrado no GeoAcesso.`,
+            address: `CEP: ${item.cep}`,
+            imageUrl: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=900&q=80',
+            rating: 4.8,
+            distance: '1,2 km',
+            category: categoryName,
+            position: { lat: -23.561414, lng: -46.655881 },
+            features: mappedFeatures,
+          };
+        });
+        if (active) {
+          setAllEstablishments(mapped.length > 0 ? mapped : establishments);
+          setLoadingEstabs(false);
+        }
+      })
+      .catch((err) => {
+        if (active) {
+          console.error('Falha ao obter estabelecimentos do backend. Usando dados locais.', err);
+          setAllEstablishments(establishments);
+          setLoadError('Não foi possível carregar os estabelecimentos.');
+          setLoadingEstabs(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [mainPage, refreshKey]);
 
   const visibleBottomNavigationItems = useMemo(
       () =>
@@ -39,7 +117,7 @@ function App() {
   const filteredEstablishments = useMemo(() => {
     const normalizedSearch = searchValue.trim().toLowerCase()
 
-    return establishments.filter((establishment) => {
+    return allEstablishments.filter((establishment) => {
       const matchesSearch =
           normalizedSearch.length === 0 ||
           establishment.name.toLowerCase().includes(normalizedSearch) ||
@@ -55,7 +133,7 @@ function App() {
 
       return matchesSearch && matchesCategory
     })
-  }, [activeCategory, searchValue])
+  }, [allEstablishments, activeCategory, searchValue])
 
   const handleViewDetails = (establishment: Establishment) => {
     setSelectedEstablishment(establishment)
@@ -103,6 +181,10 @@ function App() {
   }
 
   const handleOpenAdminEstablishments = () => {
+    if (userRole !== 'ADMIN') {
+      setMainPage('home')
+      return
+    }
     setAuthPage(null)
     setSelectedEstablishment(null)
     setMainPage('admin-establishments')
@@ -150,7 +232,7 @@ function App() {
         />
 
         {mainPage === 'admin-establishments' && userRole === 'ADMIN' ? (
-            <AdminEstablishmentsPage onBackHome={handleBackHome} />
+            <AdminEstablishmentsPage onBackHome={handleBackHome} onRefresh={() => setRefreshKey(prev => prev + 1)} />
         ) : mainPage === 'profile' ? (
             <ProfilePage onBackHome={handleBackHome} />
         ) : mainPage === 'settings' ? (
@@ -202,7 +284,9 @@ function App() {
                       Estabelecimentos acessiveis
                     </h2>
                     <p className="mt-2 text-sm text-[#D1D5DB]">
-                      {filteredEstablishments.length} estabelecimento(s) encontrado(s)
+                       {filteredEstablishments.length} estabelecimento(s) encontrado(s)
+                       {loadingEstabs && <span className="ml-2 text-sm text-[#E4C31A]">Carregando...</span>}
+                       {loadError && <p className="mt-2 text-sm text-red-400">{loadError}</p>}
                     </p>
                   </div>
                   <p className="text-sm font-medium text-[#9CA3AF]">
